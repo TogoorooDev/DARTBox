@@ -1,9 +1,14 @@
 package main
 
-type conf_server struct {
+type confServer struct {
 	Port string
 }
 
 type config_format struct {
-	Server conf_server
+	Server confServer
+}
+
+type confirmFormat struct {
+	Ip       string
+	Filename string
 }

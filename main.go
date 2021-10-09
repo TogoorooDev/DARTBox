@@ -1,97 +1,205 @@
 package main
 
 import (
-	"net"
+	"bufio"
 	"fmt"
-	"io/ioutil"	
-	
+	"io/ioutil"
+	"net"
+	"os"
+	"strconv"
+	"strings"
+	// "sync"
+
 	"github.com/BurntSushi/toml"
 )
 
-func listen_loop(inc chan string, cfrm chan bool){
-	list, err := net.Listen("tcp", ":" + config.Server.Port)
+func listenLoop(incoming chan confirmFormat, confirm chan bool, transferred chan int) {
+	list, err := net.Listen("tcp", ":"+config.Server.Port)
 	if err != nil {
 		panic(err)
 	}
 
 	defer list.Close()
-	
+
 	for {
 		conn, err := list.Accept()
 		if err != nil {
-			panic (err)
+			panic(err)
 		}
 
-		inc <- conn.RemoteAddr().String()
-
-		if <-cfrm {
-			go handle_conn(conn)	
-		}
+		go handleConn(conn, incoming, confirm)
 	}
 }
 
-func handle_conn(c net.Conn){
-	
-}
+func handleConn(c net.Conn, incoming chan confirmFormat, confirm chan bool) {
+	defer c.Close()
+	rdr := bufio.NewReader(c)
+	fileName, err := rdr.ReadString('\n')
+	fileName = strings.TrimSpace(fileName)
+	if err != nil {
+		panic(err)
+	}
 
+	out := confirmFormat{c.RemoteAddr().String(), fileName}
 
-func input_loop(inc chan string, cfrm chan bool){
+	incoming <- out
+	c.Close()
+
+	if !(<-confirm) {
+		return
+	}
+
+	fmt.Printf("Transmission inititated")
+
 	for {
-		req_ip := <- inc
-		for {
-			var resp string
-			fmt.Printf("Accept file request from %s? ", req_ip)
-			fmt.Scan(&resp)
-			if resp == "y" || resp == "Y" {
-				fmt.Println("Accepted")	
-				cfrm <- true
-				break
-			}else if resp == "n" || resp == "N" {
-				fmt.Println("Denied")
-				cfrm <- false
-				break
-			}else {
-				fmt.Println("Enter y or n")
+		read, err := rdr.ReadByte()
+		if err != nil {
+			fmt.Println(err)
+			break
+		}
+		fmt.Printf("%c", read)
+	}
+}
 
-				continue
-			}	
+func comSend(trans chan int, argc int, argv []string) {
+	if argc < 3 {
+		fmt.Println("usage: send file ip-address")
+		return
+	}
+	file := argv[1]
+	ip := argv[2]
+	FInfo, err := os.Stat(file)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	size := FInfo.Size()
+
+	sendPtr, err := os.Open(file)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	fileReader := bufio.NewReader(sendPtr)
+
+	conn, err := net.Dial("tcp", ip)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	outgoing := bufio.NewWriter(conn)
+	outgoing.WriteString(strings.TrimSpace(file) + "\n")
+	outgoing.WriteString(strconv.FormatInt(size, 10) + "\n")
+
+	var transferred int64
+	transferred = 0
+
+	for transferred < size {
+		out, err := fileReader.ReadByte()
+		outArr := make([]byte, 1)
+		outArr[0] = out
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+		outgoing.Write(outArr)
+		size++
+	}
+}
+
+func comRecv(inc chan confirmFormat, cfrm chan bool, trans chan int) {
+	fmt.Println("Awaiting connection...")
+	req := <-inc
+	var resp string
+	fmt.Printf("Accept %s from %s[y/n]? ", req.Filename, req.Ip)
+	fmt.Scan(&resp)
+	for {
+		var resp string
+		fmt.Printf("Accept %s from %s[y/n]? ", req.Filename, req.Ip)
+		fmt.Scan(&resp)
+		if resp == "y" || resp == "Y" {
+			fmt.Println("Accepted")
+			cfrm <- true
+			break
+		} else if resp == "n" || resp == "N" {
+			fmt.Println("Denied")
+			cfrm <- false
+			break
+		} else {
+			fmt.Println("Enter y or n")
+			continue
 		}
 	}
 }
 
-func parse_config(){
-	// do some config stuff here
-	config_file_data, err := ioutil.ReadFile("config.toml")
-	if err != nil {
-		panic(err)
-	}
+func inputLoop(inc chan confirmFormat, cfrm chan bool, transChan chan int) {
+	inReader := bufio.NewReader(os.Stdin)
+	for {
+		var resp string
+		fmt.Printf("DARTBox 0.1 %% ")
+		resp, err := inReader.ReadString('\n')
+		if err != nil {
+			panic(err)
+		}
+		comp := strings.ToLower(resp)
 
-	err = toml.Unmarshal(config_file_data, &config)
-	if err != nil {
-		panic(err)
+		if strings.HasPrefix(comp, "recv") {
+			comRecv(inc, cfrm, transChan)
+		} else if strings.HasPrefix(comp, "send") {
+			fmt.Println("send")
+			// Parse
+			argv := strings.Split(comp, " ")
+			argv[2] = strings.TrimSpace(argv[2])
+			comSend(transChan, len(argv), argv)
+
+		}
+
 	}
-	
 }
 
-func main(){
+func parseConfig() {
+	// do some config stuff here
+	configFileData, err := ioutil.ReadFile("config.toml")
+	if err != nil {
+		panic(err)
+	}
+
+	err = toml.Unmarshal(configFileData, &config)
+	if err != nil {
+		panic(err)
+	}
+
+}
+
+func main() {
+	writeLock.Lock()
 	fmt.Println("DARTBox 0.1")
 	fmt.Println("Reading config at config.toml")
+	writeLock.Unlock()
 
-	parse_config()
+	parseConfig()
 
+	writeLock.Lock()
 	fmt.Println("Finished reading config.toml")
 	fmt.Printf("Options:\n   Port: %s\n", config.Server.Port)
 
 	fmt.Println("Opening up to external peers")
 	fmt.Println("Creating message channels")
-	incoming_chan := make(chan string)
-	confirm_chan := make(chan bool)
+	incomingChan := make(chan confirmFormat)
+	confirmChan := make(chan bool)
+	transChan := make(chan int)
+	writeLock.Unlock()
 
+	writeLock.Lock()
 	fmt.Println("Channels created, starting network thread")
-	go listen_loop(incoming_chan, confirm_chan)
+	writeLock.Unlock()
+	go listenLoop(incomingChan, confirmChan, transChan)
 
+	writeLock.Lock()
 	fmt.Println("Initialization finished. Handing control to you")
 	fmt.Println("lets hope this works")
-	
-	input_loop(incoming_chan, confirm_chan)
+	writeLock.Unlock()
+
+	inputLoop(incomingChan, confirmChan, transChan)
 }
