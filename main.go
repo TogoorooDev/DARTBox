@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 	// "sync"
-
+	
 	"github.com/BurntSushi/toml"
 )
 
@@ -61,77 +61,6 @@ func handleConn(c net.Conn, incoming chan confirmFormat, confirm chan bool) {
 	}
 }
 
-func comSend(trans chan int, argc int, argv []string) {
-	if argc < 3 {
-		fmt.Println("usage: send file ip-address")
-		return
-	}
-	file := argv[1]
-	ip := argv[2]
-	FInfo, err := os.Stat(file)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-	size := FInfo.Size()
-
-	sendPtr, err := os.Open(file)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-	fileReader := bufio.NewReader(sendPtr)
-
-	conn, err := net.Dial("tcp", ip)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-
-	outgoing := bufio.NewWriter(conn)
-	outgoing.WriteString(strings.TrimSpace(file) + "\n")
-	outgoing.WriteString(strconv.FormatInt(size, 10) + "\n")
-
-	var transferred int64
-	transferred = 0
-
-	for transferred < size {
-		out, err := fileReader.ReadByte()
-		outArr := make([]byte, 1)
-		outArr[0] = out
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
-		outgoing.Write(outArr)
-		size++
-	}
-}
-
-func comRecv(inc chan confirmFormat, cfrm chan bool, trans chan int) {
-	fmt.Println("Awaiting connection...")
-	req := <-inc
-	var resp string
-	fmt.Printf("Accept %s from %s[y/n]? ", req.Filename, req.Ip)
-	fmt.Scan(&resp)
-	for {
-		var resp string
-		fmt.Printf("Accept %s from %s[y/n]? ", req.Filename, req.Ip)
-		fmt.Scan(&resp)
-		if resp == "y" || resp == "Y" {
-			fmt.Println("Accepted")
-			cfrm <- true
-			break
-		} else if resp == "n" || resp == "N" {
-			fmt.Println("Denied")
-			cfrm <- false
-			break
-		} else {
-			fmt.Println("Enter y or n")
-			continue
-		}
-	}
-}
 
 func inputLoop(inc chan confirmFormat, cfrm chan bool, transChan chan int) {
 	inReader := bufio.NewReader(os.Stdin)
