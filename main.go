@@ -6,10 +6,10 @@ import (
 	"io/ioutil"
 	"net"
 	"os"
-	"strconv"
 	"strings"
+
 	// "sync"
-	
+
 	"github.com/BurntSushi/toml"
 )
 
@@ -60,7 +60,6 @@ func handleConn(c net.Conn, incoming chan confirmFormat, confirm chan bool) {
 		fmt.Printf("%c", read)
 	}
 }
-
 
 func inputLoop(inc chan confirmFormat, cfrm chan bool, transChan chan int) {
 	inReader := bufio.NewReader(os.Stdin)

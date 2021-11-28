@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	//"log"
 )
 
 func comSend(trans chan int, argc int, argv []string) {
@@ -14,6 +15,7 @@ func comSend(trans chan int, argc int, argv []string) {
 		fmt.Println("usage: send file ip-address port")
 		return
 	}
+
 	file := argv[1]
 	ip := argv[2]
 	FInfo, err := os.Stat(file)
@@ -38,13 +40,17 @@ func comSend(trans chan int, argc int, argv []string) {
 
 	outgoing := bufio.NewWriter(conn)
 	outgoing.WriteString(strings.TrimSpace(file) + "\n")
+	outgoing.Flush()
+
 	outgoing.WriteString(strconv.FormatInt(size, 10) + "\n")
+	outgoing.Flush()
 
 	var transferred int64
 	transferred = 0
 
 	for transferred < size {
 		out, err := fileReader.ReadByte()
+		//fmt.Println(out)
 		outArr := make([]byte, 1)
 		outArr[0] = out
 		if err != nil {
